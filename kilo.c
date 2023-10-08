@@ -8,14 +8,23 @@
 #include <errno.h>
 #include <string.h>
 
+// explanations
+
+// this program has a vi like hierarchy
+// first terminal -> opens in raw mode -> chnages to editor mode
+
+// canonical mode -> input goes after pressing enter
+// raw mode -> program processes input as soon as it is typed
+
+// read() returns the number of bytes read
 
 // macros
-#define CTRL_KEY(k) ((k) & 0x1f)
+#define CTRL_KEY(k) ((k) & 0x1f) 
 #define KILO_VERSION "0.0.1"
 
 enum editorKey 
 {
-	ARROW_UP = 1000,
+	ARROW_UP = 1000, //1000 so no ascii characters are mistakenly printed
 	ARROW_DOWN,
 	ARROW_LEFT,
 	ARROW_RIGHT, 
@@ -32,39 +41,67 @@ struct editorConfig
 	int cursor_col, cursor_row;
 	int screenrows;
 	int screencols;
-	struct termios orig_termios;
+	struct termios orig_termios; // this is the original struct of termios
 };
 
 struct editorConfig E;
 
 
 
+
 // terminal
+
+// exits the editor with a slightly descripting error message
 void die(const char *s)
 {
-	write(STDOUT_FILENO, "\x1b[2J", 4);
-	write(STDOUT_FILENO, "\x1b[H", 3);
-	perror(s);
-	exit(1);
+	write(STDOUT_FILENO, "\x1b[2J", 4);  // clears tyhe screen 
+	write(STDOUT_FILENO, "\x1b[H", 3);   // sets the cursor to the home position
+	perror(s); 							 // descripting error message
+	exit(1); 							 // exits
 }
 
+// disables the non editor or raw mode
+// goes into canonical mode
 void disableRawMode()
 {
+	// while checking the condition it executes the operation needed
+	// changes the terminal attributes using orig_termios properties using termios header functions
 	if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.orig_termios) == -1) die("tcsetattr");
 }
 
+// enables the non editor or raw mode
 void enableRawMode() {
-	
-	if (tcgetattr(STDIN_FILENO, &E.orig_termios) == -1) die("tcgetattr");
-	atexit(disableRawMode);
 
+	if (tcgetattr(STDIN_FILENO, &E.orig_termios) == -1) die("tcgetattr");
+
+	atexit(disableRawMode); // calls disableRawmode fn when the program exits normally
+
+	// makes an instance of termios struct and assigns it the properties of orig_termios struct
 	struct termios raw = E.orig_termios;
+
+	// It’s turning off the BRKINT, ICRNL, INPCK, ISTRIP, and IXON flags. 
+	// This means the input bytes are not being translated or ignored,
+	// and software flow control is disabled.
   	raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+
+	//It’s turning off the OPOST flag, which disables output processing.
 	raw.c_oflag &= ~(OPOST);
+ 
+	//It’s turning on the CS8 flag, which sets the character size to 8 bits.
 	raw.c_cflag |= (CS8);
+
+	// It’s turning off the ECHO, ICANON, IEXTEN, and ISIG flags. 
+	// This means that echo is disabled, 
+	// canonical mode is disabled (allowing read to be satisfied immediately), 
+	// extended input processing is disabled, and signal characters are disabled
 	raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
+
+	// This line sets the minimum number of characters for non-canonical read to 0.
 	raw.c_cc[VMIN] = 0;
+	// This line sets the timeout for non-canonical read in deciseconds to 1.
 	raw.c_cc[VTIME] = 1;
+
+	// changes terminal settings to raw settings
 	if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) die("tcsetattr");
 }
 
@@ -72,15 +109,18 @@ int editorReadKey()
 {
 	int nread;
 	char c;
+	// reads input and stores it in char c
 	while ( (nread = read(STDIN_FILENO, &c , 1)) != 1)
 	{
 		if (nread == -1 && errno != EAGAIN) die("read");
 	}
 
+	// if c == "escape character"
 	if (c == '\x1b')
 	{
-		char seq[3];
+		char seq[3]; // make a char array of len 3 for any more escape sequences
 
+		// reads input
 		if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
 		if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
 
@@ -94,13 +134,13 @@ int editorReadKey()
 				{
 					switch (seq[2])
 					{
-						case '1' : return HOME_KEY;
-						case '4' : return END_KEY; 
-						case '3' : return DEL_KEY;
-						case '5' : return PAGE_UP;
-						case '6' : return PAGE_DOWN;
-						case '7' : return HOME_KEY;
-						case '8' : return END_KEY;
+						case '1' : return HOME_KEY; // (\x1b[1~)
+						case '4' : return END_KEY;  // (\x1b[4~)
+						case '3' : return DEL_KEY;  // (\x1b[4~)
+						case '5' : return PAGE_UP;  // (\x1b[5~)
+						case '6' : return PAGE_DOWN;// (\x1b[6~)
+						case '7' : return HOME_KEY; // (\x1b[7~)
+						case '8' : return END_KEY;  // (\x1b[8~)
 					}
 				}
 				
@@ -109,12 +149,12 @@ int editorReadKey()
 			{
 				switch (seq[1])
 				{
-					case 'A' : return ARROW_UP;
-					case 'B' : return ARROW_DOWN;
-					case 'C' : return ARROW_RIGHT;
-					case 'D' : return ARROW_LEFT;
-					case 'H' : return HOME_KEY;
-					case 'F' : return END_KEY;
+					case 'A' : return ARROW_UP;     // (\x1b[A)
+					case 'B' : return ARROW_DOWN;	// (\x1b[B)
+					case 'C' : return ARROW_RIGHT;	// (\x1b[C)
+					case 'D' : return ARROW_LEFT;	// (\x1b[D)
+					case 'H' : return HOME_KEY;		// (\x1b[H)
+					case 'F' : return END_KEY;		// (\x1b[F)
 				}
 			}
 		}
@@ -122,13 +162,14 @@ int editorReadKey()
 		{
 			switch (seq[1])
 			{
-				case 'H' : return HOME_KEY;
-				case 'F' : return END_KEY;
+				case 'H' : return HOME_KEY; // (\x1bOH)
+				case 'F' : return END_KEY;  // (\x1bOF)
 			}
 		}
 
 		return '\x1b';
 	}
+	// if there is no escape character then return c
 	else 
 		return c;
 }
